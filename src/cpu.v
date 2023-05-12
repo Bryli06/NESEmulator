@@ -67,10 +67,12 @@ pub fn (cpu CPU) str() string {
 	return 'a: ${cpu.register_a}\nx: ${cpu.register_x}\ny: ${cpu.register_y}'
 }
 
+[inline]
 fn (cpu CPU) mem_read(addr u16) u8 {
 	return cpu.memory[addr]
 }
 
+[inline]
 fn (mut cpu CPU) mem_write(addr u16, data u8) {
 	cpu.memory[addr] = data
 }
@@ -526,7 +528,7 @@ pub fn (mut cpu CPU) run_with_callback(cb fn(mut cpu &CPU)) {
 
         opcode := (*opcodes)[code]
 
-		println("${code}")
+		// println("${code}")
 
         match code {
             0xa9, 0xa5, 0xb5, 0xad, 0xbd, 0xb9, 0xa1, 0xb1 {

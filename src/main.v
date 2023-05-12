@@ -61,8 +61,9 @@ fn frame(mut game Game) {
 
 fn (mut game Game) read_state() {
     mut update := false
+	mem := game.cpu.memory
     for i in 0x0200..0x600 {
-        color_idx := game.cpu.mem_read(u16(i))
+        color_idx := mem[i]
         color := color_matcher(color_idx)
         if game.frame[i-0x0200] != color {
 			game.frame[i-0x0200] = color
@@ -70,7 +71,7 @@ fn (mut game Game) read_state() {
         }
     }
 	if update {
-		println('hi')
+		game.gg.refresh_ui()
 	}
 }
 
@@ -80,7 +81,7 @@ fn (mut game Game) update(mut cpu CPU) {
 
 	game.read_state()
 
-	// time.sleep(70000)
+	time.sleep(70000)
 }
 
 
