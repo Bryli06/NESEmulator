@@ -61,9 +61,8 @@ fn frame(mut game Game) {
 
 fn (mut game Game) read_state() {
     mut update := false
-	mem := game.cpu.memory
     for i in 0x0200..0x600 {
-        color_idx := mem[i]
+        color_idx := game.cpu.mem_read(u16(i))
         color := color_matcher(color_idx)
         if game.frame[i-0x0200] != color {
 			game.frame[i-0x0200] = color

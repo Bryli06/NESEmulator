@@ -18,8 +18,8 @@ pub enum CpuFlags as u8 {
 
 pub type CpuFlag = u8
 
-fn (flag CpuFlag) contains(other CpuFlags) bool {
-	return (flag & u8(other)) == u8(other)
+fn (flag &CpuFlag) contains(other CpuFlags) bool {
+	return (*flag & u8(other)) == u8(other)
 }
 
 fn (mut flag CpuFlag) insert(other CpuFlags) {
@@ -63,12 +63,12 @@ mut:
     memory [0xFFFF]u8 = [0xFFFF] u8 {}
 }
 
-pub fn (cpu CPU) str() string {
+pub fn (cpu &CPU) str() string {
 	return 'a: ${cpu.register_a}\nx: ${cpu.register_x}\ny: ${cpu.register_y}'
 }
 
-[inline]
-fn (cpu CPU) mem_read(addr u16) u8 {
+[direct_array_access]
+fn (cpu &CPU) mem_read(addr u16) u8 {
 	return cpu.memory[addr]
 }
 
@@ -77,7 +77,7 @@ fn (mut cpu CPU) mem_write(addr u16, data u8) {
 	cpu.memory[addr] = data
 }
 
-fn (cpu CPU) mem_read_u16(pos u16) u16 {
+fn (cpu &CPU) mem_read_u16(pos u16) u16 {
 	lo := u16(cpu.mem_read(pos))
 	hi := u16(cpu.mem_read(pos+1))
 	return (hi << 8) | lo
@@ -90,7 +90,7 @@ fn (mut cpu CPU) mem_write_u16(pos u16, data u16) {
 	cpu.mem_write(pos+1, hi)
 }
 
-fn (cpu CPU) get_operand_address(mode AddressingMode) u16 {
+fn (cpu &CPU) get_operand_address(mode AddressingMode) u16 {
 	match mode {
 		.immediate { return cpu.program_counter }
 		.zeropage { return cpu.mem_read(cpu.program_counter) }
