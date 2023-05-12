@@ -60,34 +60,31 @@ mut:
     status     CpuFlag = 0b100100
     program_counter u16
     stack_pointer u8 = stack_reset
-    memory [0xFFFF]u8 = [0xFFFF] u8 {}
+	bus Bus
 }
 
 pub fn (cpu &CPU) str() string {
 	return 'a: ${cpu.register_a}\nx: ${cpu.register_x}\ny: ${cpu.register_y}'
 }
 
-[direct_array_access]
+[inline]
 fn (cpu &CPU) mem_read(addr u16) u8 {
-	return cpu.memory[addr]
+	return cpu.bus.mem_read(addr)
 }
 
 [inline]
 fn (mut cpu CPU) mem_write(addr u16, data u8) {
-	cpu.memory[addr] = data
+	cpu.bus.mem_write(addr, data)
 }
 
+[inline]
 fn (cpu &CPU) mem_read_u16(pos u16) u16 {
-	lo := u16(cpu.mem_read(pos))
-	hi := u16(cpu.mem_read(pos+1))
-	return (hi << 8) | lo
+	return cpu.bus.mem_read_u16(pos)
 }
 
+[inline]
 fn (mut cpu CPU) mem_write_u16(pos u16, data u16) {
-	hi := u8(data >> 8)
-	lo := u8(data & 0xff)
-	cpu.mem_write(pos, lo)
-	cpu.mem_write(pos+1, hi)
+	cpu.bus.mem_write_u16(pos, data)
 }
 
 fn (cpu &CPU) get_operand_address(mode AddressingMode) u16 {
@@ -226,7 +223,7 @@ pub fn (mut cpu CPU) load_and_run(program []u8) {
 
 pub fn (mut cpu CPU) load(program []u8) {
 	for idx, x in program {
-		cpu.memory[0x0600+idx] = x
+		cpu.mem_write(u16(0x0600+idx), x)
 	}
     cpu.mem_write_u16(0xFFFC, 0x0600)
 }

@@ -85,7 +85,8 @@ fn (mut game Game) update(mut cpu CPU) {
 
 
 fn main() {
-	mut cpu := CPU {}
+	mut bus := Bus {}
+	mut cpu := CPU {bus: bus}
 
 	mut game := &Game{
 		gg: 0
