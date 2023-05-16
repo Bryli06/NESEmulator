@@ -19,6 +19,7 @@ bin/
 
 # ENV
 .env
+*.nes
 
 # vweb and database
 *.db
