@@ -3,7 +3,25 @@ module main
 const (
 	stack		= u16(0x0100)
 	stack_reset = u8(0xfd)
+
+	nmi = Interrupt {
+		itype: .nmi
+		vector_addr: 0xfffA
+		b_flag_mask: 0b00100000
+		cpu_cycles: 2
+	}
 )
+
+pub enum InterruptType {
+	nmi
+}
+
+pub struct Interrupt {
+	itype InterruptType
+	vector_addr u16
+	b_flag_mask u8
+	cpu_cycles u8
+}
 
 pub enum CpuFlags as u8 {
 	carry             = 0b00000001
@@ -68,7 +86,7 @@ pub fn (cpu &CPU) str() string {
 }
 
 [inline]
-fn (cpu &CPU) mem_read(addr u16) u8 {
+fn (mut cpu CPU) mem_read(addr u16) u8 {
 	return cpu.bus.mem_read(addr)
 }
 
@@ -78,7 +96,7 @@ fn (mut cpu CPU) mem_write(addr u16, data u8) {
 }
 
 [inline]
-fn (cpu &CPU) mem_read_u16(pos u16) u16 {
+fn (mut cpu CPU) mem_read_u16(pos u16) u16 {
 	return cpu.bus.mem_read_u16(pos)
 }
 
@@ -87,71 +105,105 @@ fn (mut cpu CPU) mem_write_u16(pos u16, data u16) {
 	cpu.bus.mem_write_u16(pos, data)
 }
 
-fn (cpu &CPU) get_operand_address(mode AddressingMode) u16 {
+fn page_cross(addr1 u16, addr2 u16) bool {
+	return addr1 & 0xFF00 != addr2 & 0xFF00
+}
+
+fn (mut cpu CPU) get_operand_address(mode AddressingMode) (u16, bool) {
 	match mode {
-		.immediate { return cpu.program_counter }
-		.zeropage { return cpu.mem_read(cpu.program_counter) }
-		.absolute { return cpu.mem_read_u16(cpu.program_counter) }
-		.zeropage_x {
-			pos := cpu.mem_read(cpu.program_counter)
-			return pos+cpu.register_x
-		}
-		.zeropage_y {
-			pos := cpu.mem_read(cpu.program_counter)
-			return pos+cpu.register_y
-		}
-		.absolute_x  {
-			base := cpu.mem_read_u16(cpu.program_counter)
-			return base+cpu.register_x
-		}
-		.absolute_y {
-			base := cpu.mem_read_u16(cpu.program_counter)
-			return base+cpu.register_y
-		}
-		.indirect_x {
-			base := cpu.mem_read(cpu.program_counter)
-
-			ptr := u8(base) + cpu.register_x
-			lo := cpu.mem_read(u16(ptr))
-			hi := cpu.mem_read(u16(u8(ptr)+u8(1)))
-			return (u16(hi)) << 8 | u16(lo)
-		}
-		.indirect_y {
-			base := cpu.mem_read(cpu.program_counter)
-
-			lo := cpu.mem_read(u16(base))
-			hi := cpu.mem_read(u16(u8(base)+u8(1)))
-			return ((u16(hi)) << 8 | u16(lo)) + cpu.register_y
-		}
-		.noneaddressing { panic('impossible cpu operation how tf did u do this') }
+		.immediate { return cpu.program_counter, false }
+		else { return cpu.get_absolute_address(mode, cpu.program_counter) }
 	}
 
 	panic('impossible cpu operation how tf did u do this')
 }
 
+fn (mut cpu CPU) get_absolute_address(mode AddressingMode, addr u16) (u16, bool) {
+	match mode {
+		.zeropage { return u16(cpu.mem_read(addr)), false }
+
+		.absolute { return cpu.mem_read_u16(addr), false }
+
+		.zeropage_x {
+			pos := cpu.mem_read(addr)
+			address := pos + u16(cpu.register_x)
+			return address, false
+		}
+		.zeropage_y {
+			pos := cpu.mem_read(addr)
+			address := pos + u16(cpu.register_y)
+			return address, false
+		}
+
+		.absolute_x {
+			base := cpu.mem_read_u16(addr)
+			address := base + u16(cpu.register_x)
+			return address, page_cross(base, addr)
+		}
+		.absolute_y {
+			base := cpu.mem_read_u16(addr)
+			address := base + u16(cpu.register_y)
+			return address, page_cross(base, addr)
+		}
+
+		.indirect_x {
+			base := cpu.mem_read(addr)
+
+			ptr := u8(base) + cpu.register_x
+			lo := cpu.mem_read(u16(ptr))
+			hi := cpu.mem_read(u16(ptr + 1))
+			return u16(hi) << 8 | u16(lo), false
+		}
+		.indirect_y {
+			base := cpu.mem_read(addr)
+
+			lo := cpu.mem_read(u16(base))
+			hi := cpu.mem_read(u16(base+ 1))
+			deref_base := u16(hi) << 8 | u16(lo)
+			deref := deref_base + u16(cpu.register_y)
+			return deref, page_cross(deref, deref_base)
+		}
+		else {
+			panic('mode ${mode} is not supported')
+		}
+	}
+}
+
 
 fn (mut cpu CPU) ldy(mode AddressingMode) {
-	addr := cpu.get_operand_address(mode)
+	addr, page_cross := cpu.get_operand_address(mode)
 	data := cpu.mem_read(addr)
 	cpu.register_y = data
 	cpu.update_zero_and_negative_flags(cpu.register_y)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) ldx(mode AddressingMode) {
-	addr := cpu.get_operand_address(mode)
+	addr, page_cross := cpu.get_operand_address(mode)
 	data := cpu.mem_read(addr)
 	cpu.register_x = data
 	cpu.update_zero_and_negative_flags(cpu.register_x)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) lda(mode AddressingMode) {
-	addr := cpu.get_operand_address(&mode)
+	addr, page_cross := cpu.get_operand_address(&mode)
 	value := cpu.mem_read(addr)
 	cpu.set_register_a(value)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) sta(mode AddressingMode) {
-	addr := cpu.get_operand_address(mode)
+	addr, _ := cpu.get_operand_address(mode)
 	cpu.mem_write(addr, cpu.register_a)
 }
 
@@ -161,19 +213,27 @@ fn (mut cpu CPU) set_register_a(value u8) {
 }
 
 fn (mut cpu CPU) and(mode AddressingMode) {
-	addr := cpu.get_operand_address(mode)
+	addr, page_cross := cpu.get_operand_address(mode)
 	data := cpu.mem_read(addr)
 	cpu.set_register_a(data & cpu.register_a)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) eor(mode AddressingMode) {
-	addr := cpu.get_operand_address(mode)
+	addr, page_cross := cpu.get_operand_address(mode)
 	data := cpu.mem_read(addr)
 	cpu.set_register_a(data ^ cpu.register_a)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) ora(mode AddressingMode) {
-	addr := cpu.get_operand_address(mode)
+	addr, _ := cpu.get_operand_address(mode)
 	data := cpu.mem_read(addr)
 	cpu.set_register_a(data | cpu.register_a)
 }
@@ -223,9 +283,9 @@ pub fn (mut cpu CPU) load_and_run(program []u8) {
 
 pub fn (mut cpu CPU) load(program []u8) {
 	for idx, x in program {
-		cpu.mem_write(u16(0x0600+idx), x)
+		cpu.mem_write(u16(0x8600+idx), x)
 	}
-    cpu.mem_write_u16(0xFFFC, 0x0600)
+    cpu.mem_write_u16(0xFFFC, 0x8600)
 }
 
 pub fn (mut cpu CPU) reset() {
@@ -270,16 +330,40 @@ fn (mut cpu CPU) add_to_register_a(data u8) {
     cpu.set_register_a(result)
 }
 
+fn (mut cpu CPU) sub_from_register_a(data u8) {
+	cpu.add_to_register_a(u8(i8(data) * -1 - i8(1)))
+}
+
+fn (mut cpu CPU) and_with_register_a(data u8) {
+	cpu.set_register_a(data & cpu.register_a)
+}
+
+fn (mut cpu CPU) xor_with_register_a(data u8) {
+	cpu.set_register_a(data ^ cpu.register_a)
+}
+
+fn (mut cpu CPU) or_with_register_a(data u8) {
+	cpu.set_register_a(data | cpu.register_a)
+}
+
 fn (mut cpu CPU) sbc(mode AddressingMode) {
-    addr := cpu.get_operand_address(mode)
+    addr, page_cross := cpu.get_operand_address(mode)
     data := cpu.mem_read(addr)
     cpu.add_to_register_a(u8(i8(data) * -1 - i8(1)))
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) adc(mode AddressingMode) {
-    addr := cpu.get_operand_address(mode)
+    addr, page_cross := cpu.get_operand_address(mode)
     value := cpu.mem_read(addr)
     cpu.add_to_register_a(value)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) stack_pop() u8 {
@@ -318,7 +402,7 @@ fn (mut cpu CPU) asl_accumulator() {
 }
 
 fn (mut cpu CPU) asl(mode AddressingMode) u8 {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     mut data := cpu.mem_read(addr)
     if data >> 7 == 1 {
         cpu.set_carry_flag()
@@ -343,7 +427,7 @@ fn (mut cpu CPU) lsr_accumulator() {
 }
 
 fn (mut cpu CPU) lsr(mode AddressingMode) u8 {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     mut data := cpu.mem_read(addr)
     if data & 1 == 1 {
         cpu.set_carry_flag()
@@ -357,7 +441,7 @@ fn (mut cpu CPU) lsr(mode AddressingMode) u8 {
 }
 
 fn (mut cpu CPU) rol(mode AddressingMode) u8 {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     mut data := cpu.mem_read(addr)
     old_carry := cpu.status.contains(CpuFlags.carry)
 
@@ -392,7 +476,7 @@ fn (mut cpu CPU) rol_accumulator() {
 }
 
 fn (mut cpu CPU) ror(mode AddressingMode) u8 {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     mut data := cpu.mem_read(addr)
     old_carry := cpu.status.contains(CpuFlags.carry)
 
@@ -427,7 +511,7 @@ fn (mut cpu CPU) ror_accumulator() {
 }
 
 fn (mut cpu CPU) inc(mode AddressingMode) u8 {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     mut data := cpu.mem_read(addr)
 	data += 1
     cpu.mem_write(addr, data)
@@ -446,7 +530,7 @@ fn (mut cpu CPU) dex() {
 }
 
 fn (mut cpu CPU) dec(mode AddressingMode) u8 {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     mut data := cpu.mem_read(addr)
     data -= 1
     cpu.mem_write(addr, data)
@@ -474,7 +558,7 @@ fn (mut cpu CPU) php() {
 }
 
 fn (mut cpu CPU) bit(mode AddressingMode) {
-    addr := cpu.get_operand_address(mode)
+    addr, _ := cpu.get_operand_address(mode)
     data := cpu.mem_read(addr)
     and := cpu.register_a & data
     if and == 0 {
@@ -488,7 +572,7 @@ fn (mut cpu CPU) bit(mode AddressingMode) {
 }
 
 fn (mut cpu CPU) compare(mode AddressingMode, compare_with u8) {
-    addr := cpu.get_operand_address(mode)
+    addr, page_cross := cpu.get_operand_address(mode)
     data := cpu.mem_read(addr)
     if data <= compare_with {
         cpu.status.insert(CpuFlags.carry)
@@ -497,15 +581,38 @@ fn (mut cpu CPU) compare(mode AddressingMode, compare_with u8) {
     }
 
     cpu.update_zero_and_negative_flags(compare_with-data)
+
+	if page_cross {
+		cpu.bus.tick(1)
+	}
 }
 
 fn (mut cpu CPU) branch(condition bool) {
     if condition {
+		cpu.bus.tick(1)
+
         jump := i8(cpu.mem_read(cpu.program_counter))
         jump_addr := cpu.program_counter + 1 + u16(jump)
 
+		if (cpu.program_counter + 1) & 0xFF00 != jump_addr & 0xFF00 {
+			cpu.bus.tick(1)
+		}
+
         cpu.program_counter = jump_addr
     }
+}
+
+fn (mut cpu CPU) interrupt(interrupt Interrupt) {
+	cpu.stack_push_u16(cpu.program_counter)
+	mut flag := cpu.status
+	flag.set(CpuFlags.@break, interrupt.b_flag_mask & 0b010000 == 1)
+	flag.set(CpuFlags.break2, interrupt.b_flag_mask & 0b100000 == 1)
+
+	cpu.stack_push(flag)
+	cpu.status.insert(CpuFlags.interrupt_disable)
+
+	cpu.bus.tick(interrupt.cpu_cycles)
+	cpu.program_counter = cpu.mem_read_u16(interrupt.vector_addr)
 }
 
 pub fn (mut cpu CPU) run() {
@@ -518,6 +625,11 @@ pub fn (mut cpu CPU) run_with_callback(cb fn(mut cpu &CPU)) {
     opcodes := &main.opcodes_map
 
     for {
+		if _nmi := cpu.bus.poll_nmi_status() {
+			cpu.interrupt(nmi)
+		}
+
+		cb(mut cpu)
 		// println(cpu)
         code := u8(cpu.mem_read(cpu.program_counter))
         cpu.program_counter += 1
@@ -679,8 +791,6 @@ pub fn (mut cpu CPU) run_with_callback(cb fn(mut cpu &CPU)) {
                     cpu.mem_read_u16(mem_address)
                 }
 
-				println('indirect_ref: ${indirect_ref}')
-
                 cpu.program_counter = indirect_ref
             }
 
@@ -757,13 +867,13 @@ pub fn (mut cpu CPU) run_with_callback(cb fn(mut cpu &CPU)) {
 
             /* STX */
             0x86, 0x96, 0x8e {
-                addr := cpu.get_operand_address(opcode.mode)
+                addr, _ := cpu.get_operand_address(opcode.mode)
                 cpu.mem_write(addr, cpu.register_x)
             }
 
             /* STY */
             0x84, 0x94, 0x8c {
-                addr := cpu.get_operand_address(opcode.mode)
+                addr, _ := cpu.get_operand_address(opcode.mode)
                 cpu.mem_write(addr, cpu.register_y)
             }
 
@@ -811,14 +921,238 @@ pub fn (mut cpu CPU) run_with_callback(cb fn(mut cpu &CPU)) {
                 cpu.update_zero_and_negative_flags(cpu.register_a)
             }
 
+			/* DCP */
+			0xc7, 0xd7, 0xCF, 0xdF, 0xdb, 0xd3, 0xc3 {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				mut data := cpu.mem_read(addr)
+				data -= 1
+				cpu.mem_write(addr, data)
+				// cpu._update_zero_and_negative_flags(data)
+				if data <= cpu.register_a {
+					cpu.status.insert(CpuFlags.carry)
+				}
+
+				cpu.update_zero_and_negative_flags(cpu.register_a - (data))
+			}
+
+			/* RLA */
+			0x27, 0x37, 0x2F, 0x3F, 0x3b, 0x33, 0x23 {
+				data := cpu.rol(opcode.mode)
+				cpu.and_with_register_a(data)
+			}
+
+			/* SLO */ //todo tests
+			0x07, 0x17, 0x0F, 0x1f, 0x1b, 0x03, 0x13 {
+				data := cpu.asl(opcode.mode)
+				cpu.or_with_register_a(data)
+			}
+
+			/* SRE */ //todo tests
+			0x47, 0x57, 0x4F, 0x5f, 0x5b, 0x43, 0x53 {
+				data := cpu.lsr(opcode.mode)
+				cpu.xor_with_register_a(data)
+			}
+
+			/* SKB */
+			0x80, 0x82, 0x89, 0xc2, 0xe2 {
+				/* 2 byte NOP (immediate ) */
+				// todo: might be worth doing the read
+			}
+
+			/* AXS */
+			0xCB {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				x_and_a := cpu.register_x & cpu.register_a
+				result := x_and_a - data
+
+				if data <= x_and_a {
+					cpu.status.insert(CpuFlags.carry)
+				}
+				cpu.update_zero_and_negative_flags(result)
+
+				cpu.register_x = result
+			}
+
+			/* ARR */
+			0x6B {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				cpu.and_with_register_a(data)
+				cpu.ror_accumulator()
+				//todo: registers
+				result := cpu.register_a
+				bit_5 := (result >> 5) & 1
+				bit_6 := (result >> 6) & 1
+
+				if bit_6 == 1 {
+					cpu.status.insert(CpuFlags.carry)
+				} else {
+					cpu.status.remove(CpuFlags.carry)
+				}
+
+				if bit_5 ^ bit_6 == 1 {
+					cpu.status.insert(CpuFlags.overflow)
+				} else {
+					cpu.status.remove(CpuFlags.overflow)
+				}
+
+				cpu.update_zero_and_negative_flags(result)
+			}
+
+			/* unofficial SBC */
+			0xeb {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				cpu.sub_from_register_a(data)
+			}
+
+			/* ANC */
+			0x0b, 0x2b {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				cpu.and_with_register_a(data)
+				if cpu.status.contains(CpuFlags.negativ) {
+					cpu.status.insert(CpuFlags.carry)
+				} else {
+					cpu.status.remove(CpuFlags.carry)
+				}
+			}
+
+			/* ALR */
+			0x4b {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				cpu.and_with_register_a(data)
+				cpu.lsr_accumulator()
+			}
+
+			//todo: test for everything bellow
+
+			/* NOP read */
+			0x04, 0x44, 0x64, 0x14, 0x34, 0x54, 0x74, 0xd4, 0xf4, 0x0c, 0x1c, 0x3c, 0x5c, 0x7c, 0xdc, 0xfc {
+				addr, page_cross := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+
+				if page_cross {
+					cpu.bus.tick(1)
+				}
+				/* do nothing */
+			}
+
+			/* RRA */
+			0x67, 0x77, 0x6f, 0x7f, 0x7b, 0x63, 0x73 {
+				data := cpu.ror(opcode.mode)
+				cpu.add_to_register_a(data)
+			}
+
+			/* ISB */
+			0xe7, 0xf7, 0xef, 0xff, 0xfb, 0xe3, 0xf3 {
+				data := cpu.inc(opcode.mode)
+				cpu.sub_from_register_a(data)
+			}
+
+			/* NOPs */
+			0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xb2, 0xd2, 0xf2 { /* do nothing */ }
+
+			0x1a, 0x3a, 0x5a, 0x7a, 0xda, 0xfa { /* do nothing */ }
+
+			/* LAX */
+			0xa7, 0xb7, 0xaf, 0xbf, 0xa3, 0xb3 {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				cpu.set_register_a(data)
+				cpu.register_x = cpu.register_a
+			}
+
+			/* SAX */
+			0x87, 0x97, 0x8f, 0x83 {
+				data := cpu.register_a & cpu.register_x
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				cpu.mem_write(addr, data)
+			}
+
+			/* LXA */
+			0xab {
+				cpu.lda(opcode.mode)
+				cpu.tax()
+			}
+
+			/* XAA */
+			0x8b {
+				cpu.register_a = cpu.register_x
+				cpu.update_zero_and_negative_flags(cpu.register_a)
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				data := cpu.mem_read(addr)
+				cpu.and_with_register_a(data)
+			}
+
+			/* LAS */
+			0xbb {
+				addr, _ := cpu.get_operand_address(opcode.mode)
+				mut data := cpu.mem_read(addr)
+				data &= cpu.stack_pointer
+				cpu.register_a = data
+				cpu.register_x = data
+				cpu.stack_pointer = data
+				cpu.update_zero_and_negative_flags(data)
+			}
+
+			/* TAS */
+			0x9b {
+				mut data := cpu.register_a & cpu.register_x
+				cpu.stack_pointer = data
+				mem_address :=
+					cpu.mem_read_u16(cpu.program_counter) + u16(cpu.register_y)
+
+				data = (u8(mem_address >> 8) + 1) & cpu.stack_pointer
+				cpu.mem_write(mem_address, data)
+			}
+
+			/* AHX  Indirect Y */
+			0x93 {
+				pos := cpu.mem_read(cpu.program_counter)
+				mem_address := cpu.mem_read_u16(u16(pos)) + u16(cpu.register_y)
+				data := cpu.register_a & cpu.register_x & u8(mem_address >> 8)
+				cpu.mem_write(mem_address, data)
+			}
+
+			/* AHX Absolute Y*/
+			0x9f {
+				mem_address :=
+					cpu.mem_read_u16(cpu.program_counter) + u16(cpu.register_y)
+
+				data := cpu.register_a & cpu.register_x & u8(mem_address >> 8)
+				cpu.mem_write(mem_address, data)
+			}
+
+			/* SHX */
+			0x9e {
+				mem_address :=
+					cpu.mem_read_u16(cpu.program_counter) + u16(cpu.register_y)
+
+				// todo if cross page boundry {
+				//     mem_address &= (cpu.x as u16) << 8
+				// }
+				data := cpu.register_x & (u8(mem_address >> 8) + 1)
+				cpu.mem_write(mem_address, data)
+			}
+
+			/* SHY */
+			0x9c {
+				mem_address :=
+					cpu.mem_read_u16(cpu.program_counter) + u16(cpu.register_x)
+				data := cpu.register_y & (u8(mem_address >> 8) + 1)
+				cpu.mem_write(mem_address, data)
+			}
 			else { println("bruh") }
         }
+
+		cpu.bus.tick(opcode.cycles)
 
         if program_counter_state == cpu.program_counter {
             cpu.program_counter += u16((opcode.len) - 1)
         }
-
-		cb(mut cpu)
 
     }
 }
