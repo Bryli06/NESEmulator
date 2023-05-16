@@ -15,6 +15,7 @@ mut:
 
 	cycles usize
 	gameloop_callback fn(&NesPPU)
+	joypad1 Joypad
 }
 
 fn (bus &Bus) read_prg_rom(address u16) u8 {
@@ -44,7 +45,7 @@ fn (mut bus Bus) mem_read(addr u16) u8 {
 			return 0
 		}
 		0x4016 {
-			return 0 //joypad 1
+			return bus.joypad1.read()
 		}
 		0x4017 {
 			return 0 //joypad 2
@@ -99,7 +100,7 @@ fn (mut bus Bus) mem_write(addr u16, data u8) {
 			//ignore APU
 		}
 		0x4016 {
-			//joypad 1
+			bus.joypad1.write(data)
 		}
 		0x4017 {
 			//joypad 2
