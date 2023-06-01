@@ -34,29 +34,110 @@ pub fn (mut frame Frame) set_pixel(x usize, y usize, rgb gx.Color) {
 	}
 }
 
-pub fn render(ppu &NesPPU, frame mut Frame) {
-	addr := ppu.ctrl.bknd_pattern_addr()
+struct Rect {
+    x1 usize
+    y1 usize
+    x2 usize
+    y2 usize
+}
 
-	for i in 0..0x03c0 { // just for now, lets use the first nametable
-		tile_idx := u16(ppu.vram[i])
-		tile_x := i % 32
-		tile_y := i / 32
-		tile := ppu.chr_rom[(addr + tile_idx * 16)..(addr + tile_idx * 16 + 15 + 1)]
-		palette := background_palette(ppu, tile_x, tile_y)
+fn render_name_table(ppu &NesPPU, mut frame Frame, name_table []u8, view_port Rect, shift_x isize, shift_y isize) {
+    bank := ppu.ctrl.bknd_pattern_addr()
 
-		for y in 0..8 {
-			mut upper := tile[y]
-			mut lower := tile[y + 8]
+    attribute_table := name_table[0x3c0..0x400]
+
+    for i in 0..0x3c0 {
+        tile_column := i % 32
+        tile_row := i / 32
+        tile_idx := u16(name_table[i])
+		tile := ppu.chr_rom[(bank + tile_idx * 16)..(bank + tile_idx * 16 + 15 + 1)]
+        palette := background_palette(ppu, attribute_table, tile_column, tile_row)
+
+        for y in 0..8 {
+            mut upper := tile[y]
+            mut lower := tile[y + 8]
 
 			for x := 7; x >= 0; x-- {
-               value := (1 & lower) << 1 | (1 & upper)
-               upper >>= 1
-               lower >>= 1
-               rgb := system_palette[usize(palette[value])]
-			   frame.set_pixel(usize(tile_x*8 + x), usize(tile_y*8 + y), rgb)
+				value := (1 & lower) << 1 | (1 & upper)
+				upper >>= 1
+				lower >>= 1
+				rgb := system_palette[usize(palette[value])]
+				pixel_x := tile_column * 8 + x
+                pixel_y := tile_row * 8 + y
+
+                if pixel_x >= view_port.x1 && pixel_x < view_port.x2 && pixel_y >= view_port.y1 && pixel_y < view_port.y2 {
+                    frame.set_pixel(usize(shift_x + isize(pixel_x)), usize(shift_y + isize(pixel_y)), rgb)
+                }
            }
-       }
-	}
+        }
+    }
+}
+
+pub fn render(ppu &NesPPU, mut frame Frame) {
+	scroll_x := usize(ppu.scroll.scroll_x)
+    scroll_y := usize(ppu.scroll.scroll_y)
+
+    main_nametable, second_nametable := match ppu.mirroring {
+		.vertical {
+			match ppu.ctrl.nametable_addr() {
+				0x2000, 0x2800 {
+					ppu.vram[0..0x400], ppu.vram[0x400..0x800]
+				}
+				0x2400, 0x2c00 {
+					ppu.vram[0x400..0x800], ppu.vram[0..0x400]
+				}
+				else { panic('how u get here') }
+			}
+		}
+		.horizontal {
+			match ppu.ctrl.nametable_addr() {
+				0x2000, 0x2400 {
+					ppu.vram[0..0x400], ppu.vram[0x400..0x800]
+				}
+				0x2800, 0x2c00 {
+					ppu.vram[0x400..0x800], ppu.vram[0..0x400]
+				}
+				else { panic('how u get here') }
+			}
+		}
+		else { panic('not supported mirroring type ${ppu.mirroring}') }
+    }
+
+    render_name_table(ppu, mut frame,
+        main_nametable,
+        Rect {
+			x1: scroll_x,
+			y1: scroll_y,
+			x2: 256,
+			y2: 240
+		},
+        -isize(scroll_x), -isize(scroll_y)
+    )
+    if scroll_x > 0 {
+        render_name_table(ppu, mut frame,
+            second_nametable,
+            Rect {
+				x1: 0,
+				y1: 0,
+				x2: scroll_x,
+				y2: 240
+			},
+            isize(256 - scroll_x), 0
+        )
+    }
+	else if scroll_y > 0 {
+        render_name_table(ppu, mut frame,
+            second_nametable,
+            Rect {
+				x1: 0,
+				y1: 0,
+				x2: 256,
+				y2: scroll_y
+			},
+            0, isize(240 - scroll_y)
+        )
+    }
+
 
 	for i := (ppu.oam_data.len-1) / 4 * 4; i >= 0; i-=4 {
         tile_idx := u16(ppu.oam_data[i + 1])
@@ -99,9 +180,9 @@ pub fn render(ppu &NesPPU, frame mut Frame) {
     }
 }
 
-fn background_palette(ppu &NesPPU, tile_column int, tile_row int) []u8 {
+fn background_palette(ppu &NesPPU, attribute_table []u8, tile_column int, tile_row int) []u8 {
     attr_table_idx := tile_row / 4 * 8 + tile_column / 4
-    attr_byte := ppu.vram[0x3c0 + attr_table_idx]
+    attr_byte := attribute_table[attr_table_idx]
 
 	palette_idx := (attr_byte >> ((tile_column % 4 / 2) * 2 + (tile_row % 4 / 2) * 4)) & 0b11 // disgusting
 

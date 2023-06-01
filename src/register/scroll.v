@@ -1,7 +1,7 @@
 module register
 
 pub struct ScrollRegister {
-mut:
+pub mut:
     scroll_x u8
     scroll_y u8
     latch bool

@@ -78,7 +78,7 @@ pub fn (control &ControlRegister) sprite_size() u8 {
 }
 
 pub fn (control &ControlRegister) master_slave_select() u8 {
-	if !control.contains(ControlRegisters.master_slave_select) {
+	if !control.contains(ControlRegisters.sprite_size) {
 		return 0
 	} else {
 		return 1

@@ -3,7 +3,6 @@ module main
 import os
 import gg
 import gx
-import rand
 import time
 
 [heap]
@@ -84,7 +83,7 @@ fn key_up(key gg.KeyCode, mut game Game) {
 }
 
 
-fn frame(mut game Game) {
+fn draw_frame(mut game Game) {
 	game.gg.begin()
 	for idx, c in game.frame.data {
 		game.gg.draw_pixel((idx % 256), (idx / 256), c)
@@ -92,14 +91,8 @@ fn frame(mut game Game) {
 	game.gg.end()
 }
 
-fn (mut game Game) update(ppu &NesPPU) {
-	render(ppu, mut game.frame)
-	time.sleep(700000)
-}
-
-
 fn main() {
-	data := os.read_file_array[u8]('pacman.nes')
+	data := os.read_file_array[u8]('super.nes')
 	mut rom := Rom {}
 	rom.new(data)
 
@@ -119,7 +112,11 @@ fn main() {
 		cpu: &cpu
 	}
 
-	cpu.bus.gameloop_callback = game.update
+	mut frame := &game.frame
+	cpu.bus.gameloop_callback = fn[mut frame] (ppu &NesPPU) {
+		render(ppu, mut frame)
+		time.sleep(5000000)
+	}
 
 	game.gg = gg.new_context(
 		width: 256
@@ -127,7 +124,7 @@ fn main() {
 		create_window: true
 		window_title: 'pacman'
 		user_data: game
-		frame_fn: frame
+		frame_fn: draw_frame
 		event_fn: on_event
 	)
 

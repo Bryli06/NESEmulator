@@ -180,6 +180,9 @@ pub fn (mut ppu NesPPU) write_oam_dma(data [256]u8) {
 pub fn (mut ppu NesPPU) tick(cycles u8) bool {
 	ppu.cycles += cycles
 	if ppu.cycles >= 341 {
+		if ppu.is_sprite_0_hit(ppu.cycles) {
+			ppu.status.set_sprite_zero_hit(true)
+		}
 		ppu.cycles = ppu.cycles - 341
 		ppu.scanline += 1
 
@@ -194,7 +197,6 @@ pub fn (mut ppu NesPPU) tick(cycles u8) bool {
 		if ppu.scanline >= 262 {
 			ppu.scanline = 0
 			ppu.nmi_interrupt = none
-			// ppu.status.
 			ppu.status.set_sprite_zero_hit(false)
 			ppu.status.reset_vblank_status()
 			return true
@@ -209,3 +211,8 @@ pub fn (mut ppu NesPPU) poll_nmi_interrupt() ?u8 {
 	return temp
 }
 
+fn (ppu &NesPPU) is_sprite_0_hit(cycle usize) bool {
+	y := usize(ppu.oam_data[0])
+	x := usize(ppu.oam_data[3])
+	return (y == usize(ppu.scanline)) && x <= cycle && ppu.mask.show_sprites()
+}
