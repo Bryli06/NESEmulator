@@ -44,7 +44,7 @@ fn key_down(key gg.KeyCode, mut game Game) {
 		.a {
 			game.cpu.bus.joypad1.set_button_pressed_status(JoypadButtons.button_a, true)
 		}
-		.o {
+		.s {
 			game.cpu.bus.joypad1.set_button_pressed_status(JoypadButtons.button_b, true)
 		}
 		else { }
@@ -74,7 +74,7 @@ fn key_up(key gg.KeyCode, mut game Game) {
 		.a {
 			game.cpu.bus.joypad1.set_button_pressed_status(JoypadButtons.button_a, false)
 		}
-		.o {
+		.s {
 			game.cpu.bus.joypad1.set_button_pressed_status(JoypadButtons.button_b, false)
 		}
 		else { }
