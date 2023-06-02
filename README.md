@@ -1,7 +1,9 @@
 # NESEmulator
 
-An NES Emulator written in V! 
+An NES Emulator written in V!
 
-Lots still left to be implemented like mappers and ppu scrolling.
+It can currently play all mapper 0 NES games without sound.
 
-Sorry in advanced for the poor code quality and lack of comments. 
+Lots still left to be implemented like mappers and the APU.
+
+Sorry in advanced for the poor code quality and lack of comments.
