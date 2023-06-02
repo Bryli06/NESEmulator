@@ -28,11 +28,18 @@ fn (bus &Bus) read_prg_rom(address u16) u8 {
 }
 
 fn (mut bus Bus) mem_read(addr u16) u8 {
+	if addr >= ram && addr <= ram_mirrors_end {
+		mirror_down_addr := addr & 0b0000011111111111
+		return bus.cpu_vram[mirror_down_addr]
+	}
+	if addr >= 0x2008 && addr <= ppu_registers_mirrors_end {
+		mirror_down_addr := addr & 0b0010000000000111
+		return bus.mem_read(mirror_down_addr)
+	}
+	if addr >= 0x8000 && addr <= 0xFFFF{
+		return bus.read_prg_rom(addr)
+	}
 	match addr {
-		ram...ram_mirrors_end {
-			mirror_down_addr := addr & 0b0000011111111111
-			return bus.cpu_vram[mirror_down_addr]
-		}
 		0x2000, 0x2001, 0x2003, 0x2005, 0x2006, 0x4014 {
 			panic('Attempt to read from write-only PPU address ${addr:x}')
 		}
@@ -50,13 +57,6 @@ fn (mut bus Bus) mem_read(addr u16) u8 {
 		0x4017 {
 			return 0 //joypad 2
 		}
-		0x2008...ppu_registers_mirrors_end {
-			mirror_down_addr := addr & 0b0010000000000111
-			return bus.mem_read(mirror_down_addr)
-		}
-		0x8000...0xFFFF {
-			return bus.read_prg_rom(addr)
-		}
 		else {
 			println('Ignoring mem access at ${addr}')
 			return 0
@@ -65,11 +65,20 @@ fn (mut bus Bus) mem_read(addr u16) u8 {
 }
 
 fn (mut bus Bus) mem_write(addr u16, data u8) {
+	if addr >= ram && addr <= ram_mirrors_end {
+		mirror_down_addr := addr & 0b11111111111
+		bus.cpu_vram[mirror_down_addr] = data
+		return
+	}
+	if addr >= 0x2008 && addr <= ppu_registers_mirrors_end {
+		mirror_down_addr := addr & 0b0010000000000111
+		bus.mem_write(mirror_down_addr, data)
+		return
+	}
+	if addr >= 0x8000 && addr <= 0xFFFF{
+		panic('Attempt to write to Cartridge ROM space')
+	}
 	match addr {
-		ram...ram_mirrors_end {
-			mirror_down_addr := addr & 0b11111111111
-			bus.cpu_vram[mirror_down_addr] = data
-		}
 		0x2000 {
 			bus.ppu.write_to_ctrl(data)
 		}
@@ -114,13 +123,6 @@ fn (mut bus Bus) mem_write(addr u16, data u8) {
 
 			bus.ppu.write_oam_dma(buffer)
 		}
-		0x2008...ppu_registers_mirrors_end {
-			mirror_down_addr := addr & 0b0010000000000111
-			bus.mem_write(mirror_down_addr, data)
-		}
-		0x8000...0xFFFF {
-			panic('Attempt to write to Cartridge ROM space')
-		}
 		else {
 			println('Ignoring mem write-access at ${addr}')
 		}
@@ -142,7 +144,11 @@ fn (mut bus Bus) mem_write_u16(pos u16, data u16) {
 
 pub fn (mut bus Bus) tick(cycles u8) {
 	bus.cycles += cycles
-    if bus.ppu.tick(cycles * 3) {
+
+	nmi_before := bus.ppu.nmi_interrupt != none
+	bus.ppu.tick(cycles * 3)
+	nmi_after := bus.ppu.nmi_interrupt != none
+    if !nmi_before && nmi_after {
 		bus.gameloop_callback(&bus.ppu)
 	}
 }

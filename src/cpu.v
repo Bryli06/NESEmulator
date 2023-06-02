@@ -283,9 +283,9 @@ pub fn (mut cpu CPU) load_and_run(program []u8) {
 
 pub fn (mut cpu CPU) load(program []u8) {
 	for idx, x in program {
-		cpu.mem_write(u16(0x8600+idx), x)
+		cpu.mem_write(u16(0x0600+idx), x)
 	}
-    cpu.mem_write_u16(0xFFFC, 0x8600)
+    //cpu.mem_write_u16(0xFFFC, 0x8600)
 }
 
 pub fn (mut cpu CPU) reset() {
@@ -1031,8 +1031,8 @@ pub fn (mut cpu CPU) run_with_callback(cb fn(mut cpu &CPU)) {
 
 			/* NOP read */
 			0x04, 0x44, 0x64, 0x14, 0x34, 0x54, 0x74, 0xd4, 0xf4, 0x0c, 0x1c, 0x3c, 0x5c, 0x7c, 0xdc, 0xfc {
-				addr, page_cross := cpu.get_operand_address(opcode.mode)
-				data := cpu.mem_read(addr)
+				_ , page_cross := cpu.get_operand_address(opcode.mode)
+				// data := cpu.mem_read(addr)
 
 				if page_cross {
 					cpu.bus.tick(1)

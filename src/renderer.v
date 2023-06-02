@@ -111,7 +111,7 @@ pub fn render(ppu &NesPPU, mut frame Frame) {
 			x2: 256,
 			y2: 240
 		},
-        -isize(scroll_x), -isize(scroll_y)
+        -1 * isize(scroll_x), -1 * isize(scroll_y)
     )
     if scroll_x > 0 {
         render_name_table(ppu, mut frame,
@@ -167,6 +167,8 @@ pub fn render(ppu &NesPPU, mut frame Frame) {
 					continue inner
 					gx.rgb(0,0,0)
 				}
+
+				// println('${tile_x}, ${tile_y}')
 
 				frame.set_pixel(
 					if flip_horizontal { usize(tile_x + 7 - x) }

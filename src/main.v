@@ -2,7 +2,6 @@ module main
 
 import os
 import gg
-import gx
 import time
 
 [heap]
@@ -115,14 +114,14 @@ fn main() {
 	mut frame := &game.frame
 	cpu.bus.gameloop_callback = fn[mut frame] (ppu &NesPPU) {
 		render(ppu, mut frame)
-		time.sleep(5000000)
+		time.sleep(10000000)
 	}
 
 	game.gg = gg.new_context(
 		width: 256
 		height: 240
 		create_window: true
-		window_title: 'pacman'
+		window_title: 'NESEmulator'
 		user_data: game
 		frame_fn: draw_frame
 		event_fn: on_event
